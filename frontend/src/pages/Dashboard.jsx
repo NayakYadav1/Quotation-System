@@ -1,21 +1,29 @@
 import React, { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 
 function Dashboard() {
   const [user, setUser] = useState(null)
+  const navigate = useNavigate()
 
   useEffect(() => {
     async function fetchMe() {
       try {
         const res = await fetch('/api/auth/me', { credentials: 'include' })
         const data = await res.json()
+        if (!data.user) {
+          // No valid session, redirect to login
+          navigate('/login')
+          return
+        }
         setUser(data.user)
       } catch (e) {
         console.error(e)
+        navigate('/login')
       }
     }
     fetchMe()
-  }, [])
+  }, [navigate])
 
   return (
     <div>
