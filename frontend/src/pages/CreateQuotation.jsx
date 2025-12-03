@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useLocation } from 'react-router-dom'
 import Navbar from '../components/Navbar'
+import numberToWords from '../services/numToWords'
 
 function CreateQuotation() {
   const navigate = useNavigate()
@@ -9,6 +11,7 @@ function CreateQuotation() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
+  const location = useLocation()
   // Step 1: Customer info
   const [customer, setCustomer] = useState('')
   const [address, setAddress] = useState('')
@@ -27,6 +30,20 @@ function CreateQuotation() {
   // Step 3: Finalize
   const [labour, setLabour] = useState(0)
   const [discount, setDiscount] = useState(0)
+  // Custom part fields
+  const [customPartNo, setCustomPartNo] = useState('')
+  const [customPartName, setCustomPartName] = useState('')
+  const [customPrice, setCustomPrice] = useState(0)
+  const [customQty, setCustomQty] = useState(1)
+
+  // Sync step from URL query param (handles browser back button)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const urlStep = parseInt(params.get('step') || '1', 10)
+    if (urlStep && urlStep !== step) {
+      setStep(urlStep)
+    }
+  }, [location.search, step])
 
   // Fetch user and categories on mount
   useEffect(() => {
@@ -44,13 +61,14 @@ function CreateQuotation() {
         const catRes = await fetch('/api/quotations/categories', { credentials: 'include' })
         const catData = await catRes.json()
         setCategories(catData.categories || [])
+        // Restore draft from sessionStorage if available
       } catch (e) {
         console.error(e)
         setError('Failed to load data')
       }
     }
     fetchInitial()
-  }, [navigate])
+  }, [navigate, location])
 
   // Fetch engine tree when category changes (top-level roots)
   useEffect(() => {
@@ -125,32 +143,47 @@ function CreateQuotation() {
 
   // Add part to quote
   function addPart(part) {
-    const existing = selectedParts.find(p => p.part_id === part.id)
+    const uid = `p-${part.id}`
+    const existing = selectedParts.find(p => p.uid === uid)
     if (existing) {
       existing.qty += 1
     } else {
-      selectedParts.push({ part_id: part.id, part_no: part.part_no, part_name: part.part_name, qty: 1, price: part.price })
+      selectedParts.push({ uid, part_id: part.id, part_no: part.part_no, part_name: part.part_name, qty: 1, price: part.price })
     }
     setSelectedParts([...selectedParts])
   }
 
   // Remove part from quote
-  function removePart(partId) {
-    setSelectedParts(selectedParts.filter(p => p.part_id !== partId))
+  function removePart(uid) {
+    setSelectedParts(selectedParts.filter(p => p.uid !== uid))
   }
 
   // Update part qty or price
-  function updatePart(partId, field, value) {
-    const part = selectedParts.find(p => p.part_id === partId)
+  function updatePart(uid, field, value) {
+    const part = selectedParts.find(p => p.uid === uid)
     if (part) {
-      part[field] = parseFloat(value) || 0
+      if (field === 'qty') {
+        let v = parseFloat(value)
+        if (isNaN(v) || v < 1) v = 1
+        part.qty = v
+      } else if (field === 'price') {
+        let v = parseFloat(value)
+        if (isNaN(v) || v < 0) v = 0
+        part.price = v
+      } else {
+        part[field] = value
+      }
       setSelectedParts([...selectedParts])
     }
   }
 
   // Calculate totals
   const subtotal = selectedParts.reduce((sum, p) => sum + (p.qty * p.price), 0)
-  const total = (subtotal + parseFloat(labour)) * (1 - parseFloat(discount) / 100)
+  const discount_percent = parseFloat(discount) || 0
+  const discount_amount = subtotal * (discount_percent / 100)
+  const discounted_subtotal = subtotal - discount_amount
+  const vat = discounted_subtotal * 0.13
+  const total = discounted_subtotal + vat
 
   // Next/Back
   function handleNext() {
@@ -163,18 +196,39 @@ function CreateQuotation() {
       return
     }
     setError(null)
-    setStep(step + 1)
+    const newStep = step + 1
+    setStep(newStep)
+    try {
+      navigate(`${location.pathname}?step=${newStep}`)
+    } catch (e) {
+      // fallback: do nothing
+    }
   }
 
   function handleBack() {
     setError(null)
-    setStep(step - 1)
+    const newStep = Math.max(1, step - 1)
+    setStep(newStep)
+    try {
+      navigate(`${location.pathname}?step=${newStep}`)
+    } catch (e) {
+      // fallback
+    }
   }
 
   // Submit quotation
   async function handleSubmit() {
     setLoading(true)
     try {
+      // Prepare items for backend: ensure custom parts have null part_id
+      const itemsPayload = selectedParts.map(p => ({
+        part_id: (p.part_id == null ? null : p.part_id),
+        part_no: p.part_no,
+        part_name: p.part_name,
+        qty: parseFloat(p.qty) || 0,
+        price: parseFloat(p.price) || 0
+      }))
+
       const res = await fetch('/api/quotations/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -182,8 +236,8 @@ function CreateQuotation() {
         body: JSON.stringify({
           customer,
           address,
-          items: selectedParts,
-          labour: parseFloat(labour),
+          date: quoteDate,
+          items: itemsPayload,
           discount_percent: parseFloat(discount)
         })
       })
@@ -192,7 +246,12 @@ function CreateQuotation() {
         setError(data.error || 'Failed to create quotation')
         return
       }
-      // Navigate to view quotations
+      // Clear draft and navigate to view quotations
+      try {
+        sessionStorage.removeItem('createQuotationDraft')
+      } catch (e) {
+        // ignore
+      }
       navigate('/quotations')
     } catch (e) {
       setError('Network error')
@@ -221,7 +280,7 @@ function CreateQuotation() {
             </div>
             <div className="mb-3">
               <label className="form-label">Quote Date</label>
-              <input type="text" className="form-control" value={quoteDate} disabled />
+              <input type="date" className="form-control" value={quoteDate} onChange={e => setQuoteDate(e.target.value)} />
             </div>
             <button className="btn btn-primary" onClick={handleNext}>Next</button>
           </div>
@@ -297,8 +356,9 @@ function CreateQuotation() {
                 <table className="table table-sm table-bordered">
                   <thead>
                     <tr>
+                      <th>S.No</th>
                       <th>Part No</th>
-                      <th>Part Name</th>
+                      <th>Description</th>
                       <th>Qty</th>
                       <th>Unit Price</th>
                       <th>Total</th>
@@ -307,24 +367,58 @@ function CreateQuotation() {
                   </thead>
                   <tbody>
                     {selectedParts.map((part, idx) => (
-                      <tr key={idx}>
+                      <tr key={part.uid || idx}>
+                        <td>{idx + 1}</td>
                         <td>{part.part_no}</td>
                         <td>{part.part_name}</td>
                         <td>
-                          <input type="number" style={{ width: '60px' }} value={part.qty} onChange={e => updatePart(part.part_id, 'qty', e.target.value)} />
+                          <input type="number" min="1" style={{ width: '60px' }} value={part.qty} onChange={e => updatePart(part.uid, 'qty', e.target.value)} />
                         </td>
                         <td>
-                          <input type="number" style={{ width: '80px' }} value={part.price.toFixed(2)} onChange={e => updatePart(part.part_id, 'price', e.target.value)} />
+                          <input type="number" min="0" step="0.01" style={{ width: '80px' }} value={(part.price || 0).toFixed(2)} onChange={e => updatePart(part.uid, 'price', e.target.value)} />
                         </td>
                         <td>₹{(part.qty * part.price).toFixed(2)}</td>
                         <td>
-                          <button className="btn btn-sm btn-danger" onClick={() => removePart(part.part_id)}>Remove</button>
+                          <button className="btn btn-sm btn-danger" onClick={() => removePart(part.uid)}>Remove</button>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               )}
+            </div>
+
+            <div className="mb-3 mt-3">
+              <h5>Add Custom Part</h5>
+              <div className="row g-2">
+                <div className="col-md-3">
+                  <input className="form-control" placeholder="Part No" value={customPartNo} onChange={e => setCustomPartNo(e.target.value)} />
+                </div>
+                <div className="col-md-4">
+                  <input className="form-control" placeholder="Description" value={customPartName} onChange={e => setCustomPartName(e.target.value)} />
+                </div>
+                <div className="col-md-2">
+                  <input type="number" min="0" step="0.01" className="form-control" placeholder="Price" value={customPrice} onChange={e => setCustomPrice(e.target.value)} />
+                </div>
+                <div className="col-md-2">
+                  <input type="number" min="1" className="form-control" placeholder="Qty" value={customQty} onChange={e => setCustomQty(e.target.value)} />
+                </div>
+                <div className="col-md-1">
+                  <button className="btn btn-success w-100" onClick={() => {
+                    // add custom part to selectedParts with validation
+                    if (!customPartName) return
+                    const uid = `c-${Date.now()}-${Math.floor(Math.random()*1000)}`
+                    const qty = Math.max(1, parseFloat(customQty) || 1)
+                    const price = Math.max(0, parseFloat(customPrice) || 0)
+                    selectedParts.push({ uid, part_id: null, part_no: customPartNo || '', part_name: customPartName, qty, price })
+                    setSelectedParts([...selectedParts])
+                    setCustomPartNo('')
+                    setCustomPartName('')
+                    setCustomPrice(0)
+                    setCustomQty(1)
+                  }}>Add</button>
+                </div>
+              </div>
             </div>
 
             <div className="d-flex gap-2">
@@ -343,21 +437,23 @@ function CreateQuotation() {
                   <td><strong>Subtotal:</strong></td>
                   <td>₹{subtotal.toFixed(2)}</td>
                 </tr>
-                <tr>
-                  <td><strong>Labour Charge:</strong></td>
-                  <td>
-                    <input type="number" style={{ width: '100px' }} value={labour} onChange={e => setLabour(e.target.value)} /> ₹
-                  </td>
-                </tr>
+                {/* Labour removed from customer-facing UI */}
                 <tr>
                   <td><strong>Discount (%):</strong></td>
                   <td>
-                    <input type="number" style={{ width: '100px' }} value={discount} onChange={e => setDiscount(e.target.value)} min="0" max="100" /> %
+                    <input type="number" style={{ width: '100px' }} value={discount} onChange={e => setDiscount(e.target.value)} min="0" max="100" /> % (₹{discount_amount.toFixed(2)})
                   </td>
+                </tr>
+                <tr>
+                  <td><strong>VAT (13%):</strong></td>
+                  <td>₹{vat.toFixed(2)}</td>
                 </tr>
                 <tr>
                   <td><strong>Total:</strong></td>
                   <td>₹{total.toFixed(2)}</td>
+                </tr>
+                <tr>
+                  <td colSpan="2"><em>{numberToWords(total)}</em></td>
                 </tr>
               </tbody>
             </table>

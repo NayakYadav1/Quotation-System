@@ -68,9 +68,12 @@ class QuotationItem(Base):
     
     id = Column(Integer, primary_key=True)
     quotation_id = Column(Integer, ForeignKey('quotations.id'), nullable=False)
-    part_id = Column(Integer, ForeignKey('parts.id'), nullable=False)
+    part_id = Column(Integer, ForeignKey('parts.id'), nullable=True)
     qty = Column(Float, nullable=False)
     price = Column(Float, nullable=False)  # Overridden price for this quotation only
+    # For ad-hoc/custom parts added during quotation (not present in `parts` table)
+    part_no = Column(String(50), nullable=True)
+    part_name = Column(String(200), nullable=True)
 
 
 class Metadata(Base):

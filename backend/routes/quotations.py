@@ -11,7 +11,7 @@ Endpoints:
 from flask import Blueprint, request, session, jsonify
 from datetime import datetime
 from database import get_db_session
-from models import Quotation, QuotationItem, User
+from models import Quotation, QuotationItem, User, Part
 from services.quote_service import (
     generate_quote_number,
     get_categories,
@@ -98,27 +98,48 @@ def create_quotation():
     customer = data.get('customer')
     address = data.get('address')
     items = data.get('items', [])
-    labour = float(data.get('labour', 0))
+    # Labour is not collected from UI (not shown to customer). Keep internal 0.
+    labour = 0.0
     discount_percent = float(data.get('discount_percent', 0))
+    # Optionally accept date from frontend (YYYY-MM-DD)
+    date_str = data.get('date')
+    quote_date = None
+    if date_str:
+        try:
+            quote_date = datetime.strptime(date_str, '%Y-%m-%d')
+        except Exception:
+            quote_date = None
     
     if not customer or not address:
         return jsonify({'error': 'customer and address required'}), 400
+    # Validate items: qty >= 1 and price >= 0
+    for it in items:
+        try:
+            q = float(it.get('qty', 0))
+            p = float(it.get('price', 0))
+        except Exception:
+            return jsonify({'error': 'invalid item qty/price'}), 400
+        if q < 1 or p < 0:
+            return jsonify({'error': 'item qty must be >=1 and price >=0'}), 400
     
     db = get_db_session()
     try:
         # Generate quote number
         quote_no = generate_quote_number()
         
-        # Calculate total
-        subtotal = sum(item['qty'] * item['price'] for item in items)
-        total = (subtotal + labour) * (1 - discount_percent / 100)
+        # Calculate totals: apply discount first, then VAT(13%) on discounted subtotal
+        subtotal = sum(float(item.get('qty', 0)) * float(item.get('price', 0)) for item in items)
+        discount_amount = subtotal * (discount_percent / 100.0)
+        discounted_subtotal = subtotal - discount_amount
+        vat_amount = discounted_subtotal * 0.13
+        total = discounted_subtotal + vat_amount
         
         # Create quotation
         quotation = Quotation(
             quote_no=quote_no,
             customer=customer,
             address=address,
-            date=datetime.now(),
+            date=quote_date or datetime.now(),
             labour=labour,
             discount_percent=discount_percent,
             total=round(total, 2),
@@ -127,13 +148,19 @@ def create_quotation():
         db.add(quotation)
         db.flush()  # Get quotation ID
         
-        # Add line items
+        # Add line items (support ad-hoc custom parts with part_no/part_name)
         for item in items:
+            pid = item.get('part_id')
+            # Normalize None/empty
+            if pid in (None, '', 0):
+                pid = None
             line = QuotationItem(
                 quotation_id=quotation.id,
-                part_id=item['part_id'],
-                qty=float(item['qty']),
-                price=float(item['price'])
+                part_id=pid,
+                qty=float(item.get('qty', 0)),
+                price=float(item.get('price', 0)),
+                part_no=item.get('part_no'),
+                part_name=item.get('part_name')
             )
             db.add(line)
         
@@ -143,7 +170,10 @@ def create_quotation():
             'message': 'quotation created',
             'quote_no': quote_no,
             'id': quotation.id,
-            'total': quotation.total
+            'total': quotation.total,
+            'subtotal': round(subtotal, 2),
+            'vat': round(vat_amount, 2),
+            'discount_amount': round(discount_amount, 2)
         }), 201
         
     except Exception as e:
@@ -162,7 +192,12 @@ def list_quotations():
     
     db = get_db_session()
     try:
-        quotations = db.query(Quotation).order_by(Quotation.date.desc()).all()
+        # Return all quotations for admin users; staff see only their own
+        user = db.query(User).filter_by(username=username).first()
+        if user and user.role == 'admin':
+            quotations = db.query(Quotation).order_by(Quotation.date.desc()).all()
+        else:
+            quotations = db.query(Quotation).filter_by(created_by=username).order_by(Quotation.date.desc()).all()
         result = [
             {
                 'id': q.id,
@@ -202,6 +237,7 @@ def get_quotation(qid):
             'customer': quotation.customer,
             'address': quotation.address,
             'date': quotation.date.strftime('%Y-%m-%d'),
+            # Labour is internal; still stored but not shown in UI by default
             'labour': round(quotation.labour, 2),
             'discount_percent': quotation.discount_percent,
             'total': round(quotation.total, 2),
@@ -209,12 +245,32 @@ def get_quotation(qid):
             'items': [
                 {
                     'part_id': i.part_id,
+                    'part_no': i.part_no,
+                    'part_name': i.part_name,
                     'qty': i.qty,
                     'price': round(i.price, 2)
                 }
                 for i in items
             ]
         }
+        # Enrich items: if part_name missing but part_id present, fetch from parts table
+        for idx, it in enumerate(result['items']):
+            if (not it.get('part_name')) and it.get('part_id'):
+                try:
+                    p = db.query(Part).filter_by(id=it.get('part_id')).first()
+                    if p:
+                        it['part_name'] = p.part_name
+                        it['part_no'] = p.part_no
+                except Exception:
+                    pass
+        # compute subtotal/discount/vat for the quotation detail response
+        subtotal = sum((it.get('qty') or 0) * (it.get('price') or 0) for it in result['items'])
+        discount_amount = subtotal * (quotation.discount_percent / 100.0)
+        discounted_subtotal = subtotal - discount_amount
+        vat_amount = discounted_subtotal * 0.13
+        result['subtotal'] = round(subtotal, 2)
+        result['discount_amount'] = round(discount_amount, 2)
+        result['vat'] = round(vat_amount, 2)
         return jsonify(result), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
+import numberToWords from '../services/numToWords'
 
 function ViewQuotations() {
   const navigate = useNavigate()
@@ -102,7 +103,8 @@ function ViewQuotations() {
                   <table className="table table-sm table-bordered">
                     <thead>
                       <tr>
-                        <th>Part ID</th>
+                        <th>S.No</th>
+                        <th>Description</th>
                         <th>Qty</th>
                         <th>Price</th>
                         <th>Total</th>
@@ -111,7 +113,11 @@ function ViewQuotations() {
                     <tbody>
                       {selectedQuote.items.map((item, idx) => (
                         <tr key={idx}>
-                          <td>{item.part_id}</td>
+                          <td>{idx + 1}</td>
+                          <td>
+                            <div>{item.part_name || item.part_no || `#${item.part_id}`}</div>
+                            <div className="text-muted" style={{ fontSize: '0.9em' }}>{item.part_no ? item.part_no : ''}</div>
+                          </td>
                           <td>{item.qty}</td>
                           <td>₹{item.price.toFixed(2)}</td>
                           <td>₹{(item.qty * item.price).toFixed(2)}</td>
@@ -125,18 +131,39 @@ function ViewQuotations() {
 
                 <table className="table table-sm">
                   <tbody>
-                    <tr>
-                      <td><strong>Labour:</strong></td>
-                      <td>₹{selectedQuote.labour.toFixed(2)}</td>
-                    </tr>
-                    <tr>
-                      <td><strong>Discount (%):</strong></td>
-                      <td>{selectedQuote.discount_percent}%</td>
-                    </tr>
-                    <tr>
-                      <td><strong>Total:</strong></td>
-                      <td><strong>₹{selectedQuote.total.toFixed(2)}</strong></td>
-                    </tr>
+                    {/** compute subtotal, vat, discount and total on the frontend for display */}
+                    {(() => {
+                      const items = selectedQuote.items || []
+                      const subtotal = items.reduce((s, it) => s + (it.qty * it.price), 0)
+                      const discount_percent = parseFloat(selectedQuote.discount_percent || 0)
+                      const discount_amount = subtotal * (discount_percent / 100)
+                      const discounted_subtotal = subtotal - discount_amount
+                      const vat = discounted_subtotal * 0.13
+                      const total = discounted_subtotal + vat
+                      return (
+                        <>
+                          <tr>
+                            <td><strong>Subtotal:</strong></td>
+                            <td>₹{subtotal.toFixed(2)}</td>
+                          </tr>
+                          <tr>
+                            <td><strong>Discount (%):</strong></td>
+                            <td>{discount_percent}% (₹{discount_amount.toFixed(2)})</td>
+                          </tr>
+                          <tr>
+                            <td><strong>VAT (13%):</strong></td>
+                            <td>₹{vat.toFixed(2)}</td>
+                          </tr>
+                          <tr>
+                            <td><strong>Total:</strong></td>
+                            <td><strong>₹{total.toFixed(2)}</strong></td>
+                          </tr>
+                          <tr>
+                            <td colSpan="2"><em>{numberToWords(total)}</em></td>
+                          </tr>
+                        </>
+                      )
+                    })()}
                   </tbody>
                 </table>
 
