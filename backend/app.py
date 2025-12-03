@@ -20,7 +20,9 @@ init_db()
 
 # Register blueprints
 from routes.auth import auth_bp
+from routes.quotations import quotations_bp
 app.register_blueprint(auth_bp)
+app.register_blueprint(quotations_bp)
 
 @app.route('/api/health', methods=['GET'])
 def health_check():

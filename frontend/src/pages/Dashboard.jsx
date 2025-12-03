@@ -32,9 +32,9 @@ function Dashboard() {
         <h2>Dashboard</h2>
         <p>Welcome {user ? user.username : 'Guest'}</p>
 
-        <div className="btn-group" role="group" aria-label="dashboard-actions">
-          <button className="btn btn-success">Create New Quotation</button>
-          <button className="btn btn-secondary">View Quotations</button>
+        <div className="d-flex gap-2">
+          <a href="/create-quotation" className="btn btn-success">Create New Quotation</a>
+          <a href="/quotations" className="btn btn-secondary">View Quotations</a>
           {user && user.role === 'admin' && (
             <button className="btn btn-warning">Upload Database (admin)</button>
           )}
