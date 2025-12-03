@@ -16,6 +16,7 @@ from services.quote_service import (
     generate_quote_number,
     get_categories,
     get_models_by_category,
+    build_engine_tree_for_category,
     get_parts_by_engine
 )
 
@@ -40,6 +41,16 @@ def get_models(category):
     try:
         models = get_models_by_category(category)
         return jsonify({'models': models}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@quotations_bp.route('/tree/<category>', methods=['GET'])
+def get_tree(category):
+    """Return nested engine tree for the given category."""
+    try:
+        tree = build_engine_tree_for_category(category)
+        return jsonify({'tree': tree}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

@@ -17,8 +17,10 @@ function CreateQuotation() {
   // Step 2: Parts selection
   const [categories, setCategories] = useState([])
   const [selectedCategory, setSelectedCategory] = useState('')
-  const [models, setModels] = useState([])
-  const [selectedModel, setSelectedModel] = useState('')
+  // engineLevels: array where each element is an array of nodes for that level
+  const [engineLevels, setEngineLevels] = useState([])
+  // selectedEngineIds: array of selected node id per level
+  const [selectedEngineIds, setSelectedEngineIds] = useState([])
   const [availableParts, setAvailableParts] = useState([])
   const [selectedParts, setSelectedParts] = useState([])
 
@@ -50,43 +52,76 @@ function CreateQuotation() {
     fetchInitial()
   }, [navigate])
 
-  // Fetch models when category changes
+  // Fetch engine tree when category changes (top-level roots)
   useEffect(() => {
     if (!selectedCategory) {
-      setModels([])
-      setSelectedModel('')
-      return
-    }
-    const fetchModels = async () => {
-      try {
-        const res = await fetch(`/api/quotations/models/${selectedCategory}`, { credentials: 'include' })
-        const data = await res.json()
-        setModels(data.models || [])
-        setSelectedModel('')
-      } catch (e) {
-        console.error(e)
-      }
-    }
-    fetchModels()
-  }, [selectedCategory])
-
-  // Fetch parts when model changes
-  useEffect(() => {
-    if (!selectedModel) {
+      setEngineLevels([])
+      setSelectedEngineIds([])
       setAvailableParts([])
       return
     }
-    const fetchParts = async () => {
+
+    const fetchTree = async () => {
       try {
-        const res = await fetch(`/api/quotations/parts/${selectedModel}`, { credentials: 'include' })
+        const res = await fetch(`/api/quotations/tree/${encodeURIComponent(selectedCategory)}`, { credentials: 'include' })
         const data = await res.json()
-        setAvailableParts(data.parts || [])
+        const tree = data.tree || []
+        // initialize levels with root nodes
+        setEngineLevels([tree])
+        setSelectedEngineIds([null])
+        setAvailableParts([])
       } catch (e) {
         console.error(e)
+        setEngineLevels([])
+        setSelectedEngineIds([])
+        setAvailableParts([])
       }
     }
-    fetchParts()
-  }, [selectedModel])
+
+    fetchTree()
+  }, [selectedCategory])
+
+  // Handler when user picks an engine node at a given level
+  async function handleEngineSelect(levelIndex, nodeId) {
+    // update selected ids
+    const newSelected = selectedEngineIds.slice(0, levelIndex)
+    newSelected[levelIndex] = nodeId
+    setSelectedEngineIds(newSelected)
+
+    // find the node object in engineLevels[levelIndex]
+    const node = (engineLevels[levelIndex] || []).find(n => n.id === parseInt(nodeId))
+    if (!node) {
+      // clear deeper levels and parts
+      setEngineLevels(engineLevels.slice(0, levelIndex + 1))
+      setAvailableParts([])
+      return
+    }
+
+    if (node.children && node.children.length > 0) {
+      // set next level to node.children and clear any deeper levels
+      const newLevels = engineLevels.slice(0, levelIndex + 1)
+      newLevels[levelIndex + 1] = node.children
+      setEngineLevels(newLevels)
+      // clear parts until a leaf is chosen
+      setAvailableParts([])
+      // ensure selected ids array has a slot for next level
+      const sel = newSelected.slice(0, levelIndex + 1)
+      sel[levelIndex + 1] = null
+      setSelectedEngineIds(sel)
+    } else {
+      // leaf node: fetch parts for this engine id
+      try {
+        const res = await fetch(`/api/quotations/parts/${node.id}`, { credentials: 'include' })
+        const data = await res.json()
+        setAvailableParts(data.parts || [])
+        // trim levels to this level
+        setEngineLevels(engineLevels.slice(0, levelIndex + 1))
+      } catch (e) {
+        console.error(e)
+        setAvailableParts([])
+      }
+    }
+  }
 
   // Add part to quote
   function addPart(part) {
@@ -206,20 +241,28 @@ function CreateQuotation() {
                 </select>
               </div>
               <div className="col-md-6">
-                <label className="form-label">Model</label>
-                <select className="form-select" value={selectedModel} onChange={e => setSelectedModel(e.target.value)} disabled={!selectedCategory}>
-                  <option value="">-- Select Model --</option>
-                  {models.map(model => (
-                    <option key={model.id} value={model.id}>{model.name}</option>
-                  ))}
-                </select>
+                <label className="form-label">Model / Product Line</label>
+                {engineLevels.length === 0 ? (
+                  <select className="form-select" disabled>
+                    <option>-- Select Category first --</option>
+                  </select>
+                ) : (
+                  engineLevels.map((options, levelIdx) => (
+                    <select key={levelIdx} className="form-select mb-2" value={selectedEngineIds[levelIdx] || ''} onChange={e => handleEngineSelect(levelIdx, e.target.value)}>
+                      <option value="">-- Select --</option>
+                      {options.map(opt => (
+                        <option key={opt.id} value={opt.id}>{opt.name}</option>
+                      ))}
+                    </select>
+                  ))
+                )}
               </div>
             </div>
 
             <div className="mb-3">
               <h5>Available Parts</h5>
               {availableParts.length === 0 ? (
-                <p className="text-muted">Select a model to see parts</p>
+                <p className="text-muted">Select a leaf model to see parts</p>
               ) : (
                 <table className="table table-sm table-striped">
                   <thead>

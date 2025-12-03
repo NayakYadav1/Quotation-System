@@ -81,3 +81,27 @@ def get_parts_by_engine(engine_id):
         ]
     finally:
         session.close()
+
+
+def build_engine_tree_for_category(category):
+    """Build a nested tree of engines for a given category.
+
+    Returns a list of nodes where each node is:
+      { id, name, children: [ ... ] }
+    """
+    session = get_db_session()
+    try:
+        # get all engines for the category
+        nodes = session.query(Engine).filter_by(category=category).all()
+        node_map = {n.id: {'id': n.id, 'name': n.engine_name, 'children': []} for n in nodes}
+
+        roots = []
+        for n in nodes:
+            if n.parent_id and n.parent_id in node_map:
+                node_map[n.parent_id]['children'].append(node_map[n.id])
+            else:
+                roots.append(node_map[n.id])
+
+        return roots
+    finally:
+        session.close()
