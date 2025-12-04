@@ -146,10 +146,12 @@ function ViewQuotations() {
                             <td><strong>Subtotal:</strong></td>
                             <td>₹{subtotal.toFixed(2)}</td>
                           </tr>
-                          <tr>
-                            <td><strong>Discount (%):</strong></td>
-                            <td>{discount_percent}% (₹{discount_amount.toFixed(2)})</td>
-                          </tr>
+                          {discount_percent > 0 && (
+                            <tr>
+                              <td><strong>Discount (%):</strong></td>
+                              <td>{discount_percent}% (₹{discount_amount.toFixed(2)})</td>
+                            </tr>
+                          )}
                           <tr>
                             <td><strong>VAT (13%):</strong></td>
                             <td>₹{vat.toFixed(2)}</td>
