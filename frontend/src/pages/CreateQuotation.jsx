@@ -31,6 +31,7 @@ function CreateQuotation() {
   const [labour, setLabour] = useState(0)
   const [discount, setDiscount] = useState(0)
   // Custom part fields
+  const [customPartNo, setCustomPartNo] = useState('')
   const [customPartName, setCustomPartName] = useState('')
   const [customPrice, setCustomPrice] = useState(0)
   const [customQty, setCustomQty] = useState(1)
@@ -390,11 +391,40 @@ function CreateQuotation() {
             <div className="mb-3 mt-3">
               <h5>Add Custom Part</h5>
               <div className="row g-2">
-                <div className="col-md-8">
-                  <input className="form-control" placeholder="Description" value={customPartName} onChange={e => setCustomPartName(e.target.value)} />
+                <div className="col-md-3">
+                  <input 
+                    className="form-control" 
+                    placeholder="Part No" 
+                    value={customPartNo} 
+                    onChange={e => {
+                      const partNo = e.target.value
+                      setCustomPartNo(partNo)
+                      // Search available parts by part_no or part_name
+                      const searchTerm = partNo.toLowerCase().trim()
+                      if (searchTerm && availableParts.length > 0) {
+                        const match = availableParts.find(p => 
+                          p.part_no.toLowerCase() === searchTerm || 
+                          p.part_no.toLowerCase().includes(searchTerm) ||
+                          p.part_name.toLowerCase().includes(searchTerm)
+                        )
+                        if (match) {
+                          setCustomPartName(match.part_name)
+                          setCustomPrice(match.price)
+                        }
+                      }
+                    }} 
+                  />
+                </div>
+                <div className="col-md-3">
+                  <input 
+                    className="form-control" 
+                    placeholder="Description" 
+                    value={customPartName}
+                    disabled
+                  />
                 </div>
                 <div className="col-md-2">
-                  <input type="number" min="0" step="0.01" className="form-control" placeholder="Price" value={customPrice} onChange={e => setCustomPrice(e.target.value)} />
+                  <input type="number" min="0" step="0.01" className="form-control" placeholder="Price" value={customPrice} disabled />
                 </div>
                 <div className="col-md-2">
                   <input type="number" min="1" className="form-control" placeholder="Qty" value={customQty} onChange={e => setCustomQty(e.target.value)} />
@@ -402,12 +432,16 @@ function CreateQuotation() {
                 <div className="col-md-auto">
                   <button className="btn btn-success" onClick={() => {
                     // add custom part to selectedParts with validation
-                    if (!customPartName) return
+                    if (!customPartNo || !customPartName) {
+                      alert('Please search and select a part first')
+                      return
+                    }
                     const uid = `c-${Date.now()}-${Math.floor(Math.random()*1000)}`
                     const qty = Math.max(1, parseFloat(customQty) || 1)
                     const price = Math.max(0, parseFloat(customPrice) || 0)
-                    selectedParts.push({ uid, part_id: null, part_no: '', part_name: customPartName, qty, price })
+                    selectedParts.push({ uid, part_id: null, part_no: customPartNo, part_name: customPartName, qty, price })
                     setSelectedParts([...selectedParts])
+                    setCustomPartNo('')
                     setCustomPartName('')
                     setCustomPrice(0)
                     setCustomQty(1)
