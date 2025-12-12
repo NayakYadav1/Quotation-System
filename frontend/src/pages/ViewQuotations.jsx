@@ -7,6 +7,9 @@ function ViewQuotations() {
   const navigate = useNavigate()
   const [user, setUser] = useState(null)
   const [quotations, setQuotations] = useState([])
+  const [page, setPage] = useState(1)
+  const [perPage, setPerPage] = useState(20)
+  const [total, setTotal] = useState(0)
   const [selectedQuote, setSelectedQuote] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -25,9 +28,14 @@ function ViewQuotations() {
         setUser(meData.user)
 
         // Fetch quotations
-        const quotRes = await fetch('/api/quotations', { credentials: 'include' })
+        const quotRes = await fetch(`/api/quotations?page=${page}&per_page=${perPage}`, { credentials: 'include' })
         const quotData = await quotRes.json()
-        setQuotations(quotData.quotations || [])
+        if (quotData.error) {
+          setError(quotData.error)
+        } else {
+          setQuotations(quotData.quotations || [])
+          setTotal(quotData.total || 0)
+        }
       } catch (e) {
         console.error(e)
         setError('Failed to load quotations')
@@ -36,14 +44,18 @@ function ViewQuotations() {
       }
     }
     fetchData()
-  }, [navigate])
+  }, [navigate, page, perPage])
 
   // Fetch quotation detail
   async function fetchDetail(id) {
     try {
       const res = await fetch(`/api/quotations/${id}`, { credentials: 'include' })
       const data = await res.json()
-      setSelectedQuote(data)
+      if (data.error) {
+        setError(data.error)
+      } else {
+        setSelectedQuote(data)
+      }
     } catch (e) {
       console.error(e)
       setError('Failed to load quotation detail')
@@ -65,6 +77,7 @@ function ViewQuotations() {
             ) : quotations.length === 0 ? (
               <p className="text-muted">No quotations found</p>
             ) : (
+              <>
               <table className="table table-striped table-hover">
                 <thead>
                   <tr>
@@ -85,6 +98,14 @@ function ViewQuotations() {
                   ))}
                 </tbody>
               </table>
+              <div className="d-flex justify-content-between align-items-center">
+                <div>Showing {quotations.length} of {total}</div>
+                <div>
+                  <button className="btn btn-sm btn-outline-primary me-2" onClick={() => setPage(Math.max(1, page-1))} disabled={page<=1}>Prev</button>
+                  <button className="btn btn-sm btn-outline-primary" onClick={() => setPage(page+1)} disabled={page*perPage >= total}>Next</button>
+                </div>
+              </div>
+              </>
             )}
           </div>
 

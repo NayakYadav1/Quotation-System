@@ -65,6 +65,32 @@ def get_parts(engine_id):
         return jsonify({'error': str(e)}), 500
 
 
+@quotations_bp.route('/parts/search', methods=['GET'])
+def search_parts():
+    """Search parts across the entire parts DB by query string `q`.
+    Returns JSON list of parts with id, part_no, part_name, price.
+    """
+    q = (request.args.get('q') or '').strip()
+    if not q:
+        return jsonify({'parts': []}), 200
+    db = get_db_session()
+    try:
+        # Case-insensitive partial match on part_no or part_name
+        pattern = f"%{q}%"
+        parts = db.query(Part).filter(
+            (Part.part_no.ilike(pattern)) | (Part.part_name.ilike(pattern))
+        ).limit(50).all()
+        result = [
+            {'id': p.id, 'part_no': p.part_no, 'part_name': p.part_name, 'price': round(p.price, 2)}
+            for p in parts
+        ]
+        return jsonify({'parts': result}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        db.close()
+
+
 # ========== PROTECTED ENDPOINTS (require session) ==========
 
 def require_login():
@@ -192,12 +218,24 @@ def list_quotations():
     
     db = get_db_session()
     try:
+        # Pagination params
+        try:
+            page = int(request.args.get('page', 1))
+            per_page = int(request.args.get('per_page', 20))
+        except Exception:
+            page = 1
+            per_page = 20
+        if per_page <= 0:
+            per_page = 20
+
         # Return all quotations for admin users; staff see only their own
         user = db.query(User).filter_by(username=username).first()
-        if user and user.role == 'admin':
-            quotations = db.query(Quotation).order_by(Quotation.date.desc()).all()
-        else:
-            quotations = db.query(Quotation).filter_by(created_by=username).order_by(Quotation.date.desc()).all()
+        query = db.query(Quotation)
+        if not (user and user.role == 'admin'):
+            query = query.filter_by(created_by=username)
+        total = query.count()
+        quotations = query.order_by(Quotation.date.desc()).offset((page-1)*per_page).limit(per_page).all()
+
         result = [
             {
                 'id': q.id,
@@ -209,7 +247,7 @@ def list_quotations():
             }
             for q in quotations
         ]
-        return jsonify({'quotations': result}), 200
+        return jsonify({'quotations': result, 'page': page, 'per_page': per_page, 'total': total}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:

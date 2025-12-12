@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useLocation } from 'react-router-dom'
 import Navbar from '../components/Navbar'
@@ -35,6 +35,11 @@ function CreateQuotation() {
   const [customPartName, setCustomPartName] = useState('')
   const [customPrice, setCustomPrice] = useState(0)
   const [customQty, setCustomQty] = useState(1)
+  // Other charges fields
+  const [chargeDescription, setChargeDescription] = useState('')
+  const [chargeAmount, setChargeAmount] = useState(0)
+  const [chargeQty, setChargeQty] = useState(1)
+  const partSearchTimer = useRef(null)
 
   // Sync step from URL query param (handles browser back button)
   useEffect(() => {
@@ -394,24 +399,29 @@ function CreateQuotation() {
                 <div className="col-md-3">
                   <input 
                     className="form-control" 
-                    placeholder="Part No" 
+                    placeholder="Part No (search DB)" 
                     value={customPartNo} 
                     onChange={e => {
                       const partNo = e.target.value
                       setCustomPartNo(partNo)
-                      // Search available parts by part_no or part_name
-                      const searchTerm = partNo.toLowerCase().trim()
-                      if (searchTerm && availableParts.length > 0) {
-                        const match = availableParts.find(p => 
-                          p.part_no.toLowerCase() === searchTerm || 
-                          p.part_no.toLowerCase().includes(searchTerm) ||
-                          p.part_name.toLowerCase().includes(searchTerm)
-                        )
-                        if (match) {
-                          setCustomPartName(match.part_name)
-                          setCustomPrice(match.price)
+                      // debounce search against entire parts DB
+                      if (partSearchTimer.current) clearTimeout(partSearchTimer.current)
+                      partSearchTimer.current = setTimeout(async () => {
+                        const q = (partNo || '').trim()
+                        if (!q) return
+                        try {
+                          const res = await fetch(`/api/quotations/parts/search?q=${encodeURIComponent(q)}`, { credentials: 'include' })
+                          const data = await res.json()
+                          const parts = data.parts || []
+                          if (parts.length > 0) {
+                            const match = parts[0]
+                            setCustomPartName(match.part_name || '')
+                            setCustomPrice(match.price || 0)
+                          }
+                        } catch (err) {
+                          console.error('part search failed', err)
                         }
-                      }
+                      }, 300)
                     }} 
                   />
                 </div>
@@ -420,11 +430,11 @@ function CreateQuotation() {
                     className="form-control" 
                     placeholder="Description" 
                     value={customPartName}
-                    disabled
+                    onChange={e => setCustomPartName(e.target.value)}
                   />
                 </div>
                 <div className="col-md-2">
-                  <input type="number" min="0" step="0.01" className="form-control" placeholder="Price" value={customPrice} disabled />
+                  <input type="number" min="0" step="0.01" className="form-control" placeholder="Price" value={customPrice} onChange={e => setCustomPrice(e.target.value)} />
                 </div>
                 <div className="col-md-2">
                   <input type="number" min="1" className="form-control" placeholder="Qty" value={customQty} onChange={e => setCustomQty(e.target.value)} />
@@ -432,20 +442,52 @@ function CreateQuotation() {
                 <div className="col-md-auto">
                   <button className="btn btn-success" onClick={() => {
                     // add custom part to selectedParts with validation
-                    if (!customPartNo || !customPartName) {
-                      alert('Please search and select a part first')
+                    if (!customPartName) {
+                      alert('Please enter a description for the custom part')
                       return
                     }
                     const uid = `c-${Date.now()}-${Math.floor(Math.random()*1000)}`
                     const qty = Math.max(1, parseFloat(customQty) || 1)
                     const price = Math.max(0, parseFloat(customPrice) || 0)
-                    selectedParts.push({ uid, part_id: null, part_no: customPartNo, part_name: customPartName, qty, price })
+                    selectedParts.push({ uid, part_id: null, part_no: customPartNo || '', part_name: customPartName, qty, price })
                     setSelectedParts([...selectedParts])
                     setCustomPartNo('')
                     setCustomPartName('')
                     setCustomPrice(0)
                     setCustomQty(1)
                   }}>Add</button>
+                </div>
+              </div>
+            </div>
+
+            <div className="mb-3 mt-3">
+              <h5>Add Other Charge (transport, service etc.)</h5>
+              <div className="row g-2">
+                <div className="col-md-6">
+                  <input className="form-control" placeholder="Charge description" value={chargeDescription} onChange={e => setChargeDescription(e.target.value)} />
+                </div>
+                <div className="col-md-2">
+                  <input type="number" min="0" step="0.01" className="form-control" placeholder="Amount" value={chargeAmount} onChange={e => setChargeAmount(e.target.value)} />
+                </div>
+                <div className="col-md-2">
+                  <input type="number" min="1" className="form-control" placeholder="Qty" value={chargeQty} onChange={e => setChargeQty(e.target.value)} />
+                </div>
+                <div className="col-md-auto">
+                  <button className="btn btn-secondary" onClick={() => {
+                    if (!chargeDescription) {
+                      alert('Please enter a description for the charge')
+                      return
+                    }
+                    const uid = `chg-${Date.now()}-${Math.floor(Math.random()*1000)}`
+                    const qty = Math.max(1, parseFloat(chargeQty) || 1)
+                    const price = Math.max(0, parseFloat(chargeAmount) || 0)
+                    // represent charge as a quotation item with empty part_no and part_id
+                    selectedParts.push({ uid, part_id: null, part_no: '', part_name: chargeDescription, qty, price })
+                    setSelectedParts([...selectedParts])
+                    setChargeDescription('')
+                    setChargeAmount(0)
+                    setChargeQty(1)
+                  }}>Add Charge</button>
                 </div>
               </div>
             </div>
