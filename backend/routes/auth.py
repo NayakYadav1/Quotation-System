@@ -146,27 +146,25 @@ def delete_user(username):
         db.close()
 
 
-@auth_bp.route('/change-password', methods=['POST'])
-def change_password():
-    """Logged-in user can change their password. Body: {old_password, new_password}"""
-    username = require_login_username()
-    if not username:
-        return jsonify({'error': 'unauthorized'}), 401
+@auth_bp.route('/users/<username>/set-password', methods=['POST'])
+def admin_set_password(username):
+    """Admin-only: Set a user's password. Body: {new_password}
+    Only admin can set/reset staff passwords per requirements.
+    """
+    if not require_admin():
+        return jsonify({'error': 'forbidden'}), 403
     data = request.json or {}
-    old = data.get('old_password')
     new = data.get('new_password')
-    if not old or not new:
-        return jsonify({'error': 'old_password and new_password required'}), 400
+    if not new:
+        return jsonify({'error': 'new_password required'}), 400
     db = get_db_session()
     try:
         user = db.query(User).filter_by(username=username).first()
         if not user:
             return jsonify({'error': 'user not found'}), 404
-        if not check_password_hash(user.password_hash, old):
-            return jsonify({'error': 'invalid current password'}), 400
         user.password_hash = generate_password_hash(new)
         db.commit()
-        return jsonify({'message': 'password changed'}), 200
+        return jsonify({'message': 'password set'}), 200
     except Exception as e:
         db.rollback()
         return jsonify({'error': str(e)}), 500

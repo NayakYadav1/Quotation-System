@@ -21,6 +21,9 @@ function Navbar({ user }) {
           {user ? (
             <>
               <span className="navbar-text">Signed in as {user.username} ({user.role})</span>
+              {user.role === 'admin' && (
+                <button className="btn btn-sm btn-outline-primary" onClick={() => navigate('/staff')}>Staff</button>
+              )}
               <button className="btn btn-sm btn-danger" onClick={handleLogout}>Logout</button>
             </>
           ) : (

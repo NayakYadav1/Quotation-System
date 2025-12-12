@@ -35,6 +35,8 @@ function CreateQuotation() {
   const [customPartName, setCustomPartName] = useState('')
   const [customPrice, setCustomPrice] = useState(0)
   const [customQty, setCustomQty] = useState(1)
+  const [customMatched, setCustomMatched] = useState(false)
+  const [searchResults, setSearchResults] = useState([])
   // Other charges fields
   const [chargeDescription, setChargeDescription] = useState('')
   const [chargeAmount, setChargeAmount] = useState(0)
@@ -404,6 +406,8 @@ function CreateQuotation() {
                     onChange={e => {
                       const partNo = e.target.value
                       setCustomPartNo(partNo)
+                      setCustomMatched(false)
+                      setSearchResults([])
                       // debounce search against entire parts DB
                       if (partSearchTimer.current) clearTimeout(partSearchTimer.current)
                       partSearchTimer.current = setTimeout(async () => {
@@ -413,11 +417,8 @@ function CreateQuotation() {
                           const res = await fetch(`/api/quotations/parts/search?q=${encodeURIComponent(q)}`, { credentials: 'include' })
                           const data = await res.json()
                           const parts = data.parts || []
-                          if (parts.length > 0) {
-                            const match = parts[0]
-                            setCustomPartName(match.part_name || '')
-                            setCustomPrice(match.price || 0)
-                          }
+                          setSearchResults(parts)
+                          // do not auto-select; wait for user to pick from suggestions
                         } catch (err) {
                           console.error('part search failed', err)
                         }
@@ -430,11 +431,12 @@ function CreateQuotation() {
                     className="form-control" 
                     placeholder="Description" 
                     value={customPartName}
-                    onChange={e => setCustomPartName(e.target.value)}
+                    onChange={e => { setCustomPartName(e.target.value); setCustomMatched(false) }}
+                    disabled={customMatched}
                   />
                 </div>
                 <div className="col-md-2">
-                  <input type="number" min="0" step="0.01" className="form-control" placeholder="Price" value={customPrice} onChange={e => setCustomPrice(e.target.value)} />
+                  <input type="number" min="0" step="0.01" className="form-control" placeholder="Price" value={customPrice} onChange={e => { setCustomPrice(e.target.value); setCustomMatched(false) }} disabled={customMatched} />
                 </div>
                 <div className="col-md-2">
                   <input type="number" min="1" className="form-control" placeholder="Qty" value={customQty} onChange={e => setCustomQty(e.target.value)} />
@@ -455,10 +457,29 @@ function CreateQuotation() {
                     setCustomPartName('')
                     setCustomPrice(0)
                     setCustomQty(1)
+                    setCustomMatched(false)
+                    setSearchResults([])
                   }}>Add</button>
                 </div>
               </div>
             </div>
+            {/* Suggestion dropdown */}
+            {searchResults && searchResults.length > 0 && (
+              <div className="list-group mt-1" style={{ maxWidth: 700 }}>
+                {searchResults.map(p => (
+                  <button key={p.id} type="button" className="list-group-item list-group-item-action" onClick={() => {
+                    setCustomPartNo(p.part_no)
+                    setCustomPartName(p.part_name)
+                    setCustomPrice(p.price)
+                    setCustomMatched(true)
+                    setSearchResults([])
+                  }}>
+                    <div><strong>{p.part_no}</strong> — {p.part_name}</div>
+                    <div className="text-muted">₹{(p.price || 0).toFixed(2)}</div>
+                  </button>
+                ))}
+              </div>
+            )}
 
             <div className="mb-3 mt-3">
               <h5>Add Other Charge (transport, service etc.)</h5>
